@@ -2202,6 +2202,9 @@ function generate_tripcode($name) {
 			$trip = $config['custom_tripcode']["#{$trip}"];
 		else
 			$trip = '!' . substr(crypt($trip, $salt), -10);
+			if (isset($config['safe_tripcode']["{$trip}"] )) {
+				$trip = $config['safe_tripcode']["{$trip}"];
+			}
 	}
 
 	return array($name, $trip);
