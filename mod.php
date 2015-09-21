@@ -4,9 +4,10 @@
  *  Copyright (c) 2010-2014 Tinyboard Development Group
  */
 
-require 'inc/functions.php';
-require 'inc/mod/pages.php';
-require 'inc/mod/auth.php';
+require_once 'inc/functions.php';
+require_once 'inc/bans.php';
+require_once 'inc/mod/pages.php';
+require_once 'inc/mod/auth.php';
 
 if ($config['debug'])
 	$parse_start_time = microtime(true);
@@ -105,6 +106,11 @@ $pages = array(
 			str_replace('%d', '(\d+)', preg_quote($config['file_page50'], '!'))	=> 'view_thread50',
 	'/(\%b)/' . preg_quote($config['dir']['res'], '!') .
 			str_replace('%d', '(\d+)', preg_quote($config['file_page'], '!'))	=> 'view_thread',
+
+	'/(\%b)/' . preg_quote($config['dir']['res'], '!') .
+			str_replace(array('%d','%s'), array('(\d+)', '[a-z0-9-]+'), preg_quote($config['file_page50_slug'], '!'))	=> 'view_thread50',
+	'/(\%b)/' . preg_quote($config['dir']['res'], '!') .
+			str_replace(array('%d','%s'), array('(\d+)', '[a-z0-9-]+'), preg_quote($config['file_page_slug'], '!'))	=> 'view_thread',
 );
 
 

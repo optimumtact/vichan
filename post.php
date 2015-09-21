@@ -3,8 +3,9 @@
  *  Copyright (c) 2010-2014 Tinyboard Development Group
  */
 
-require 'inc/functions.php';
-require 'inc/anti-bot.php';
+require_once 'inc/functions.php';
+require_once 'inc/anti-bot.php';
+require_once 'inc/bans.php';
 
 // Fix for magic quotes
 if (get_magic_quotes_gpc()) {
@@ -85,25 +86,29 @@ if (isset($_POST['delete'])) {
 			}
 			
 			_syslog(LOG_INFO, 'Deleted post: ' .
-				'/' . $board['dir'] . $config['dir']['res'] . sprintf($config['file_page'], $post['thread'] ? $post['thread'] : $id) . ($post['thread'] ? '#' . $id : '')
+				'/' . $board['dir'] . $config['dir']['res'] . link_for($post) . ($post['thread'] ? '#' . $id : '')
 			);
 		}
 	}
 	
 	buildIndex();
 
-
-	rebuildThemes('post-delete', $board['uri']);
-	
 	$is_mod = isset($_POST['mod']) && $_POST['mod'];
 	$root = $is_mod ? $config['root'] . $config['file_mod'] . '?/' : $config['root'];
-	
+
 	if (!isset($_POST['json_response'])) {
 		header('Location: ' . $root . $board['dir'] . $config['file_index'], true, $config['redirect_http']);
 	} else {
 		header('Content-Type: text/json');
 		echo json_encode(array('success' => true));
 	}
+
+        // We are already done, let's continue our heavy-lifting work in the background (if we run off FastCGI)
+        if (function_exists('fastcgi_finish_request'))
+                @fastcgi_finish_request();
+
+	rebuildThemes('post-delete', $board['uri']);
+
 } elseif (isset($_POST['report'])) {
 	if (!isset($_POST['board'], $_POST['reason']))
 		error($config['error']['bot']);
@@ -142,7 +147,7 @@ if (isset($_POST['delete'])) {
 		
 		if ($config['syslog'])
 			_syslog(LOG_INFO, 'Reported post: ' .
-				'/' . $board['dir'] . $config['dir']['res'] . sprintf($config['file_page'], $thread ? $thread : $id) . ($thread ? '#' . $id : '') .
+				'/' . $board['dir'] . $config['dir']['res'] . link_for($post) . ($thread ? '#' . $id : '') .
 				' for "' . $reason . '"'
 			);
 		$query = prepare("INSERT INTO ``reports`` VALUES (NULL, :time, :ip, :board, :post, :reason)");
@@ -250,7 +255,7 @@ if (isset($_POST['delete'])) {
 	
 	//Check if thread exists
 	if (!$post['op']) {
-		$query = prepare(sprintf("SELECT `sticky`,`locked`,`sage` FROM ``posts_%s`` WHERE `id` = :id AND `thread` IS NULL LIMIT 1", $board['uri']));
+		$query = prepare(sprintf("SELECT `sticky`,`locked`,`sage`,`slug` FROM ``posts_%s`` WHERE `id` = :id AND `thread` IS NULL LIMIT 1", $board['uri']));
 		$query->bindValue(':id', $post['thread'], PDO::PARAM_INT);
 		$query->execute() or error(db_error());
 		
@@ -258,6 +263,9 @@ if (isset($_POST['delete'])) {
 			// Non-existant
 			error($config['error']['nonexistant']);
 		}
+	}
+	else {
+		$thread = false;
 	}
 		
 	
@@ -304,7 +312,12 @@ if (isset($_POST['delete'])) {
 			$url_without_params = $post['file_url'];
 
 		$post['extension'] = strtolower(mb_substr($url_without_params, mb_strrpos($url_without_params, '.') + 1));
-		if (!in_array($post['extension'], $config['allowed_ext']) && !in_array($post['extension'], $config['allowed_ext_files']))
+
+		if ($post['op'] && $config['allowed_ext_op']) {
+			if (!in_array($post['extension'], $config['allowed_ext_op']))
+				error($config['error']['unknownext']);
+		}
+		else if (!in_array($post['extension'], $config['allowed_ext']) && !in_array($post['extension'], $config['allowed_ext_files']))
 			error($config['error']['unknownext']);
 
 		$post['file_tmp'] = tempnam($config['tmp'], 'url');
@@ -513,7 +526,7 @@ if (isset($_POST['delete'])) {
 				"\n<tinyboard flag alt>".geoip\geoip_country_name_by_addr_v6($gi, ipv4to6($_SERVER['REMOTE_ADDR']))."</tinyboard>";
 		}
 	}
-	
+
 	if ($config['user_flag'] && isset($_POST['user_flag']))
 	if (!empty($_POST['user_flag']) ){
 		
@@ -526,6 +539,15 @@ if (isset($_POST['delete'])) {
 
 		$post['body'] .= "\n<tinyboard flag>" . strtolower($user_flag) . "</tinyboard>" .
 		"\n<tinyboard flag alt>" . $flag_alt . "</tinyboard>";
+	}
+
+	if ($config['allowed_tags'] && $post['op'] && isset($_POST['tag']) && isset($config['allowed_tags'][$_POST['tag']])) {
+		$post['body'] .= "\n<tinyboard tag>" . $_POST['tag'] . "</tinyboard>";
+	}
+
+        if ($config['proxy_save'] && isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+		$proxy = preg_replace("/[^0-9a-fA-F.,: ]/", '', $_SERVER['HTTP_X_FORWARDED_FOR']);
+		$post['body'] .= "\n<tinyboard proxy>".$proxy."</tinyboard>";
 	}
 	
 	if (mysql_version() >= 50503) {
@@ -552,7 +574,11 @@ if (isset($_POST['delete'])) {
 	if ($post['has_file']) {
 		$fnarray = array();
 		foreach ($post['files'] as $key => &$file) {
-			if (!in_array($file['extension'], $config['allowed_ext']) && !in_array($file['extension'], $config['allowed_ext_files']))
+			if ($post['op'] && $config['allowed_ext_op']) {
+				if (!in_array($file['extension'], $config['allowed_ext_op']))
+					error($config['error']['unknownext']);
+			}
+			elseif (!in_array($file['extension'], $config['allowed_ext']) && !in_array($file['extension'], $config['allowed_ext_files']))
 				error($config['error']['unknownext']);
 			
 			$file['is_an_image'] = !in_array($file['extension'], $config['allowed_ext_files']);
@@ -782,6 +808,7 @@ if (isset($_POST['delete'])) {
 	
 	$post = (object)$post;
 	$post->files = array_map(function($a) { return (object)$a; }, $post->files);
+
 	$error = event('post', $post);
 	$post->files = array_map(function($a) { return (array)$a; }, $post->files);
 
@@ -796,6 +823,7 @@ if (isset($_POST['delete'])) {
 	$post['num_files'] = sizeof($post['files']);
 	
 	$post['id'] = $id = post($post);
+	$post['slug'] = slugify($post);
 	
 	insertFloodPost($post);
 	
@@ -817,18 +845,6 @@ if (isset($_POST['delete'])) {
 		bumpThread($post['thread']);
 	}
 	
-	buildThread($post['op'] ? $id : $post['thread']);
-	
-	if ($config['try_smarter'] && $post['op'])
-		$build_pages = range(1, $config['max_pages']);
-	
-	if ($post['op'])
-		clean();
-	
-	event('post-after', $post);
-	
-	buildIndex();
-	
 	if (isset($_SERVER['HTTP_REFERER'])) {
 		// Tell Javascript that we posted successfully
 		if (isset($_COOKIE[$config['cookies']['js']]))
@@ -845,37 +861,35 @@ if (isset($_POST['delete'])) {
 	
 	if ($noko) {
 		$redirect = $root . $board['dir'] . $config['dir']['res'] .
-			sprintf($config['file_page'], $post['op'] ? $id:$post['thread']) . (!$post['op'] ? '#' . $id : '');
+			link_for($post, false, false, $thread) . (!$post['op'] ? '#' . $id : '');
 	   	
 		if (!$post['op'] && isset($_SERVER['HTTP_REFERER'])) {
 			$regex = array(
 				'board' => str_replace('%s', '(\w{1,8})', preg_quote($config['board_path'], '/')),
 				'page' => str_replace('%d', '(\d+)', preg_quote($config['file_page'], '/')),
-				'page50' => str_replace('%d', '(\d+)', preg_quote($config['file_page50'], '/')),
+				'page50' => '(' . str_replace('%d', '(\d+)', preg_quote($config['file_page50'], '/')) . '|' .
+						  str_replace(array('%d', '%s'), array('(\d+)', '[a-z0-9-]+'), preg_quote($config['file_page50_slug'], '/')) . ')',
 				'res' => preg_quote($config['dir']['res'], '/'),
 			);
 
 			if (preg_match('/\/' . $regex['board'] . $regex['res'] . $regex['page50'] . '([?&].*)?$/', $_SERVER['HTTP_REFERER'])) {
 				$redirect = $root . $board['dir'] . $config['dir']['res'] .
-					sprintf($config['file_page50'], $post['op'] ? $id:$post['thread']) . (!$post['op'] ? '#' . $id : '');
+					link_for($post, true, false, $thread) . (!$post['op'] ? '#' . $id : '');
 			}
 		}
 	} else {
 		$redirect = $root . $board['dir'] . $config['file_index'];
 		
 	}
+
+	buildThread($post['op'] ? $id : $post['thread']);
 	
 	if ($config['syslog'])
 		_syslog(LOG_INFO, 'New post: /' . $board['dir'] . $config['dir']['res'] .
-			sprintf($config['file_page'], $post['op'] ? $id : $post['thread']) . (!$post['op'] ? '#' . $id : ''));
+			link_for($post) . (!$post['op'] ? '#' . $id : ''));
 	
 	if (!$post['mod']) header('X-Associated-Content: "' . $redirect . '"');
 
-	if ($post['op'])
-		rebuildThemes('post-thread', $board['uri']);
-	else
-		rebuildThemes('post', $board['uri']);
-	
 	if (!isset($_POST['json_response'])) {
 		header('Location: ' . $redirect, true, $config['redirect_http']);
 	} else {
@@ -886,6 +900,26 @@ if (isset($_POST['delete'])) {
 			'id' => $id
 		));
 	}
+	
+	if ($config['try_smarter'] && $post['op'])
+		$build_pages = range(1, $config['max_pages']);
+	
+	if ($post['op'])
+		clean();
+	
+	event('post-after', $post);
+	
+	buildIndex();
+
+	// We are already done, let's continue our heavy-lifting work in the background (if we run off FastCGI)
+	if (function_exists('fastcgi_finish_request'))
+		@fastcgi_finish_request();
+
+	if ($post['op'])
+		rebuildThemes('post-thread', $board['uri']);
+	else
+		rebuildThemes('post', $board['uri']);
+	
 } elseif (isset($_POST['appeal'])) {
 	if (!isset($_POST['ban_id']))
 		error($config['error']['bot']);

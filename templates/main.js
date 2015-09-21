@@ -146,6 +146,7 @@ function changeStyle(styleName, link) {
 {% endraw %}
 {% if config.stylesheets_board %}
 	{# This is such an unacceptable mess. There needs to be an easier way. #}
+	{# Needs fix for slugify #}
 	var matches = document.URL.match(/\/(\w+)\/($|{{ config.dir.res|replace({'/': '\\/'}) }}{{ config.file_page|replace({'%d': '\\d+', '.': '\\.'}) }}|{{ config.file_index|replace({'.': '\\.'}) }}|{{ config.file_page|replace({'%d': '\\d+', '.': '\\.'}) }})/);
 	{% raw %}
 	if (matches) {
@@ -253,7 +254,7 @@ function dopost(form) {
 	saved[document.location] = form.elements['body'].value;
 	sessionStorage.body = JSON.stringify(saved);
 	
-	return form.elements['body'].value != "" || form.elements['file'].value != "" || (form.elements.file_url && form.elements['file_url'].value != "");
+	return form.elements['body'].value != "" || (form.elements['file'] && form.elements['file'].value != "") || (form.elements.file_url && form.elements['file_url'].value != "");
 }
 
 function citeReply(id, with_link) {

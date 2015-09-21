@@ -354,7 +354,7 @@ class Post {
 		}
 
 		if (isset($this->files) && $this->files)
-			$this->files = json_decode($this->files);
+			$this->files = @json_decode($this->files);
 		
 		$this->subject = utf8tohtml($this->subject);
 		$this->name = utf8tohtml($this->name);
@@ -383,7 +383,7 @@ class Post {
 	public function link($pre = '', $page = false) {
 		global $config, $board;
 		
-		return $this->root . $board['dir'] . $config['dir']['res'] . sprintf(($page ? $page : $config['file_page']), $this->thread) . '#' . $pre . $this->id;
+		return $this->root . $board['dir'] . $config['dir']['res'] . link_for((array)$this, $page == '50') . '#' . $pre . $this->id;
 	}
 	
 	public function build($index=false) {
@@ -404,7 +404,7 @@ class Thread {
 		}
 		
 		if (isset($this->files))
-			$this->files = json_decode($this->files);
+			$this->files = @json_decode($this->files);
 		
 		$this->subject = utf8tohtml($this->subject);
 		$this->name = utf8tohtml($this->name);
@@ -438,7 +438,7 @@ class Thread {
 	public function link($pre = '', $page = false) {
 		global $config, $board;
 		
-		return $this->root . $board['dir'] . $config['dir']['res'] . sprintf(($page ? $page : $config['file_page']), $this->id) . '#' . $pre . $this->id;
+		return $this->root . $board['dir'] . $config['dir']['res'] . link_for((array)$this, $page == '50') . '#' . $pre . $this->id;
 	}
 	public function add(Post $post) {
 		$this->posts[] = $post;
@@ -453,7 +453,8 @@ class Thread {
 		
 		event('show-thread', $this);
 
-		$built = Element('post_thread.html', array('config' => $config, 'board' => $board, 'post' => &$this, 'index' => $index, 'hasnoko50' => $hasnoko50, 'isnoko50' => $isnoko50, 'mod' => $this->mod));
+		$file = ($index && $config['file_board']) ? 'post_thread_fileboard.html' : 'post_thread.html';
+		$built = Element($file, array('config' => $config, 'board' => $board, 'post' => &$this, 'index' => $index, 'hasnoko50' => $hasnoko50, 'isnoko50' => $isnoko50, 'mod' => $this->mod));
 		
 		return $built;
 	}
